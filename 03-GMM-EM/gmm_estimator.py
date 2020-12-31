@@ -3,6 +3,7 @@
 import numpy as np
 from utils import *
 import scipy.cluster.vq as vq
+from scipy.stats import multivariate_normal
 
 num_gaussian = 5
 num_iterations = 5
@@ -32,8 +33,8 @@ class GMM:
         return mu , sigma , pi
     
     def gaussian(self , x , mu , sigma):
-        """Calculate gaussion probability.
-    
+        """Calculate gaussion probability. 和scipy.stats.multivariate_normal计算相同
+
             :param x: The observed data, dim*1.
             :param mu: The mean vector of gaussian, dim*1
             :param sigma: The covariance matrix, dim*dim
@@ -55,10 +56,38 @@ class GMM:
         """
 
         log_llh = 0.0
-        """
-            FINISH by YOUSELF
-        """
+        n_points, n_clusters = len(X), len(self.pi)
+        pdfs = np.zeros(((n_points, n_clusters)))
+        for i in range(n_clusters):
+            pdfs[:, i] = self.pi[i] * multivariate_normal.pdf(X, self.mu[i], np.diag(self.sigma[i]))
+        log_llh = np.mean(np.log(pdfs.sum(axis=1)))
         return log_llh
+
+    def update_W(self, X, Mu, Var, Pi):
+        n_points, n_clusters = len(X), len(Pi)
+        pdfs = np.zeros(((n_points, n_clusters)))
+        for i in range(n_clusters):
+            pdfs[:, i] = Pi[i] * multivariate_normal.pdf(X, Mu[i], np.diag(Var[i]))
+        W = pdfs / pdfs.sum(axis=1).reshape(-1, 1)
+        return W
+
+    def update_Pi(self, W):
+        Pi = W.sum(axis=0) / W.sum()
+        return Pi
+
+    def update_Mu(self, X, W):
+        n_clusters = W.shape[1]
+        Mu = np.zeros((n_clusters, self.dim))
+        for i in range(n_clusters):
+            Mu[i] = np.average(X, axis=0, weights=W[:, i])
+        return Mu
+
+    def update_Var(self, X, Mu, W):
+        n_clusters = W.shape[1]
+        Var = np.zeros((n_clusters, self.dim))
+        for i in range(n_clusters):
+            Var[i] = np.average((X - Mu[i]) ** 2, axis=0, weights=W[:, i])
+        return Var
 
     def em_estimator(self , X):
         """Update paramters of GMM
@@ -68,9 +97,10 @@ class GMM:
         """
 
         log_llh = 0.0
-        """
-            FINISH by YOUSELF
-        """
+        W = self.update_W(X, self.mu, self.sigma, self.pi)
+        self.pi = self.update_Pi(W)
+        self.mu = self.update_Mu(X, W)
+        self.sigma = self.update_Var(X, self.mu, W)
         log_llh = self.calc_log_likelihood(X)
 
         return log_llh
@@ -83,6 +113,7 @@ def train(gmms, num_iterations = num_iterations):
         feats = get_feats(target, dict_utt2feat, dict_target2utt)   #
         for i in range(num_iterations):
             log_llh = gmms[target].em_estimator(feats)
+            print('log-likehood:%.3f'%log_llh)
     return gmms
 
 def test(gmms):
