@@ -94,6 +94,14 @@ double viterbi(const Graph& graph, const matrix<double>& gmmProbs,
   //  The code for calculating the final probability and
   //  the best path is provided for you below.
   // assert(graph.get_state_count() == stateCnt);
+  /*cout << format("gmm count %d") % gmmProbs.size2() << endl;
+  cout << format("start index %d") % graph.get_start_state() << endl;
+  vector<int> finalList;
+  int finalCnt = graph.get_final_state_list(finalList);
+  cout << format("final count %d") % finalCnt << endl;
+  cout << format("state count %d") % graph.get_state_count() << endl;
+  cout << format("frame count %d") % frmCnt << endl;
+  graph.write("graph.txt");*/
 
   // DEBUG chart BEGIN
   // int frmMax = frmCnt + 1;
@@ -114,6 +122,53 @@ double viterbi(const Graph& graph, const matrix<double>& gmmProbs,
   // DEBUG chart END
   // return 0.0;
 
+  // Ensure chart is initialized with large negative number to make Viterbi comparision work
+  for (size_t frmIdx = 0; frmIdx < chart.size1(); ++frmIdx) {
+    for (size_t stateIdx = 0; stateIdx < chart.size2(); ++stateIdx) {
+      chart(frmIdx, stateIdx).assign(g_zeroLogProb, -1);
+    }
+  }
+
+  // Init to start state, prob = 1
+  int startState = graph.get_start_state();
+  chart(0, startState).assign(0, -1);
+
+  // Start state (frame 0) to frame 1
+  int frmIdx = 1;
+  int arcCnt = graph.get_arc_count(startState);
+  int arcId = graph.get_first_arc_id(startState);
+  for (int arcIdx = 0; arcIdx < arcCnt; ++arcIdx) {
+    Arc arc;
+    int nextArcId = graph.get_arc(arcId, arc);
+    int dstState = arc.get_dst_state();
+    double state_prob = chart(frmIdx - 1, startState).get_log_prob();
+    double transition_prob = arc.get_log_prob();
+    double emit_prob = gmmProbs(0, arc.get_gmm());
+    double log_prob = state_prob + transition_prob + emit_prob;
+    chart(frmIdx, dstState).assign(log_prob, arcId);
+    arcId = nextArcId;
+  }
+
+  // Frame 1 to last, lattice
+  for (int frmIdx = 2; frmIdx <= frmCnt; ++frmIdx) {
+    for (int stateIdx = 0; stateIdx < stateCnt; ++stateIdx) {
+      int arcCnt = graph.get_arc_count(stateIdx);
+      int arcId = graph.get_first_arc_id(stateIdx);
+      for (int arcIdx = 0; arcIdx < arcCnt; ++arcIdx) {
+        Arc arc;
+        int nextArcId = graph.get_arc(arcId, arc);
+        int dstState = arc.get_dst_state();
+        double state_prob = chart(frmIdx - 1, stateIdx).get_log_prob();
+        double transition_prob = arc.get_log_prob();
+        double emit_prob = gmmProbs(frmIdx - 1, arc.get_gmm());
+        double log_prob = state_prob + transition_prob + emit_prob;
+        if (log_prob > chart(frmIdx, dstState).get_log_prob()) {
+          chart(frmIdx, dstState).assign(log_prob, arcId);
+        }
+        arcId = nextArcId;
+      }
+    }
+  }
   //  END_LAB
   //
 
