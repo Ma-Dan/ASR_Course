@@ -59,7 +59,7 @@ class GMM:
         n_points, n_clusters = len(X), len(self.pi)
         pdfs = np.zeros(((n_points, n_clusters)))
         for i in range(n_clusters):
-            pdfs[:, i] = self.pi[i] * multivariate_normal.pdf(X, self.mu[i], np.diag(self.sigma[i]))
+            pdfs[:, i] = self.pi[i] * multivariate_normal.pdf(X, self.mu[i], self.sigma[i])
         log_llh = np.mean(np.log(pdfs.sum(axis=1)))
         return log_llh
 
@@ -67,7 +67,7 @@ class GMM:
         n_points, n_clusters = len(X), len(Pi)
         pdfs = np.zeros(((n_points, n_clusters)))
         for i in range(n_clusters):
-            pdfs[:, i] = Pi[i] * multivariate_normal.pdf(X, Mu[i], np.diag(Var[i]))
+            pdfs[:, i] = Pi[i] * multivariate_normal.pdf(X, Mu[i], Var[i])
         W = pdfs / pdfs.sum(axis=1).reshape(-1, 1)
         return W
 
@@ -77,16 +77,16 @@ class GMM:
 
     def update_Mu(self, X, W):
         n_clusters = W.shape[1]
-        Mu = np.zeros((n_clusters, self.dim))
+        Mu = []
         for i in range(n_clusters):
-            Mu[i] = np.average(X, axis=0, weights=W[:, i])
+            Mu.append(np.average(X, axis=0, weights=W[:, i]))
         return Mu
 
     def update_Var(self, X, Mu, W):
         n_clusters = W.shape[1]
-        Var = np.zeros((n_clusters, self.dim))
+        Var = []
         for i in range(n_clusters):
-            Var[i] = np.average((X - Mu[i]) ** 2, axis=0, weights=W[:, i])
+            Var.append(np.cov(X - Mu[i], rowvar=0, aweights=W[:, i]))
         return Var
 
     def em_estimator(self , X):
