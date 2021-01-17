@@ -61,11 +61,28 @@ double GmmStats::add_gmm_count(unsigned gmmIdx, double posterior,
   //      These counts have all been initialized to zero
   //      somewhere else at the appropriate time.
 
+  m_gaussCounts[gaussIdx] += posterior;
+  for (int dimIdx = 0; dimIdx < dimCnt; ++dimIdx) {
+    m_gaussStats1(gaussIdx, dimIdx) += posterior * feats[dimIdx];
+    m_gaussStats2(gaussIdx, dimIdx) += posterior * pow(feats[dimIdx], 2);
+  }
+
+  double z = 0.0;
+  double sigma = 1.0;
+
+  for (int dimIdx=0; dimIdx<dimCnt; dimIdx++) {
+    double var = m_gmmSet.get_gaussian_var(gaussIdx, dimIdx);
+    z += pow((feats[dimIdx] - m_gmmSet.get_gaussian_mean(gaussIdx, dimIdx)) / var, 2);
+    sigma *= var;
+  }
+
+  double logProb = log(posterior * 1.0 / (pow(2 * M_PI, dimCnt/2.0) * sigma) * exp(-0.5 * z));
+
   // suppose each GMM only has one component
   //  END_LAB
   //
 
-  return 0.0;
+  return logProb;
 }
 
 double GmmStats::update(const vector<GmmCount>& gmmCountList,
@@ -116,6 +133,17 @@ void GmmStats::reestimate() const {
   //
   //      for each dimension of each Gaussian with the reestimated
   //      values of the means and variances.
+
+  double occupancy, mean, var;
+  for (int gaussIdx = 0; gaussIdx < gaussCnt; ++gaussIdx) {
+    occupancy = m_gaussCounts[gaussIdx];
+    for (int dimIdx = 0; dimIdx < dimCnt; ++dimIdx) {
+      mean = m_gaussStats1(gaussIdx, dimIdx) / occupancy;
+      var = m_gaussStats2(gaussIdx, dimIdx) / occupancy - mean * mean;
+      m_gmmSet.set_gaussian_mean(gaussIdx, dimIdx, mean);
+      m_gmmSet.set_gaussian_var(gaussIdx, dimIdx, var);
+    }
+  }
 
   //  END_LAB
   //
