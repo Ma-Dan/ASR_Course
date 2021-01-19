@@ -69,7 +69,35 @@ double forward_backward(const Graph& graph, const matrix<double>& gmmProbs,
   //  Fill in forward pass here.
 
   // Init chart
+  int startState = graph.get_start_state();
+  chart(0, startState).set_forw_log_prob(0);
+
+  /*for (int stateIdx = 0; stateIdx < stateCnt; stateIdx++) {
+    chart(frmCnt, stateIdx).set_back_log_prob(0);
+  }*/
+
   // Recursive forward pass 
+  for (int frmIdx = 1; frmIdx <= frmCnt; frmIdx++) {
+    vector<double> forwardProbs[stateCnt];
+    for (int srcIdx = 0; srcIdx < stateCnt; srcIdx++) {
+      int arcCnt = graph.get_arc_count(srcIdx);
+      int arcId = graph.get_first_arc_id(srcIdx);
+      for (int arcIdx = 0; arcIdx < arcCnt; arcIdx++) {
+        Arc arc;
+        arcId = graph.get_arc(arcId, arc);
+        int dstState = arc.get_dst_state();
+        double emitProb = gmmProbs(frmIdx-1, arc.get_gmm());
+        double transProb = arc.get_log_prob();
+        double stateProb = chart(frmIdx-1, srcIdx).get_forw_log_prob();
+        forwardProbs[dstState].push_back(emitProb+transProb+stateProb);
+      }
+    }
+    for (int dstIdx = 0; dstIdx < stateCnt; dstIdx++) {
+      if (forwardProbs[dstIdx].size() > 0) {
+        chart(frmIdx, dstIdx).set_forw_log_prob(add_log_probs(forwardProbs[dstIdx]));
+      }
+    }
+  }
 
   // DEBUG forward
   // cout << "forward" << endl;
@@ -113,34 +141,28 @@ double forward_backward(const Graph& graph, const matrix<double>& gmmProbs,
   //      These counts will later be used to update GMM statistics.
   //
   //  Fill in backward pass here.
+  // Recursive backward pass (Don't need terminate step)
   for (int frmIdx = frmCnt-1; frmIdx >= 0; frmIdx--) {
-    vector<vector<double> > backwardProbs(stateCnt);
-    for (int stateIdx = 0; stateIdx < stateCnt; ++stateIdx) {
-      int arcCnt = graph.get_arc_count(stateIdx);
-      int arcId = graph.get_first_arc_id(stateIdx);
-      for (int arcIdx = 0; arcIdx < arcCnt; ++arcIdx) {
+    vector<double> backwardProbs[stateCnt];
+    for (int srcIdx = 0; srcIdx < stateCnt; srcIdx++) {
+      int arcCnt = graph.get_arc_count(srcIdx);
+      int arcId = graph.get_first_arc_id(srcIdx);
+      for (int arcIdx = 0; arcIdx < arcCnt; arcIdx++) {
         Arc arc;
         arcId = graph.get_arc(arcId, arc);
         int dstState = arc.get_dst_state();
-        int gmmIdx = arc.get_gmm();
-        assert(gmmIdx >= 0);
-        double gmmProb = gmmProbs(frmIdx, gmmIdx);
-        double arcProb = arc.get_log_prob();
-        double logProb = chart(frmIdx+1, dstState).get_back_log_prob();
-        // Next state is activated backward
-        if (logProb > g_zeroLogProb) {
-          double totalProb = logProb + gmmProb + arcProb;
-          backwardProbs[stateIdx].push_back(totalProb);
-        }
+        double emitProb = gmmProbs(frmIdx, arc.get_gmm());
+        double transProb = arc.get_log_prob();
+        double stateProb = chart(frmIdx+1, dstState).get_back_log_prob();
+        backwardProbs[srcIdx].push_back(emitProb+transProb+stateProb);
       }
     }
-    for (int stateIdx = 0; stateIdx < stateCnt; ++stateIdx) {
-      if (backwardProbs[stateIdx].size() > 0) {
-        chart(frmIdx, stateIdx).set_back_log_prob(add_log_probs(backwardProbs[stateIdx])); 
+    for (int srcIdx = 0; srcIdx < stateCnt; srcIdx++) {
+      if (backwardProbs[srcIdx].size() > 0) {
+        chart(frmIdx, srcIdx).set_back_log_prob(add_log_probs(backwardProbs[srcIdx])); 
       }
     }
   }
-  // Recursive backward pass (Don't need terminate step)
 
   // DEBUG backward
   // cout << "backward\na\nb\nc" << endl;
@@ -152,6 +174,26 @@ double forward_backward(const Graph& graph, const matrix<double>& gmmProbs,
   // }
   
   // Record posterior prob
+  for (int frmIdx = frmCnt; frmIdx > 0; frmIdx--) {
+    for (int stateIdx = 0; stateIdx < stateCnt; stateIdx++) {
+      int arcCnt = graph.get_arc_count(stateIdx);
+      int arcId = graph.get_first_arc_id(stateIdx);
+      for (int arcIdx = 0; arcIdx < arcCnt; arcIdx++) {
+        Arc arc;
+        arcId = graph.get_arc(arcId, arc);
+        int dstState = arc.get_dst_state();
+        double logProb =
+            chart(frmIdx - 1, stateIdx).get_forw_log_prob() +  // alpha_t-1_i
+            arc.get_log_prob() +                               // a_i_j
+            gmmProbs(frmIdx - 1, arc.get_gmm()) +              // b_j_(ot)
+            chart(frmIdx, dstState).get_back_log_prob();       // beta_t_j
+        // We don't need to accumulate for i in here (HAH P396 (8.57))
+        // accumulate for i will be done in GmmStats::add_gmm_count()
+        gmmCountList.push_back(
+            GmmCount(arc.get_gmm(), frmIdx - 1, exp(logProb - uttLogProb)));
+      }
+    }
+  }
   //  END_LAB
 
   return uttLogProb;
